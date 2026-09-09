@@ -67,13 +67,14 @@ schtasks /create /tn "VisaMonitor" ^
 
 Quitar: `schtasks /delete /tn "VisaMonitor" /f`
 
-## Frecuencia — léelo
+## Frecuencia
 
 El estado de un visado cambia **como mucho una vez al día**, en horario de
-oficina del consulado. Con `min_interval_minutes = 180` haces ~4 consultas
-reales al día (4 captchas para ti). **No lo bajes de 120.** Pedir en bucle a
-un servidor público de la Administración, aunque medie un captcha, no es
-razonable ni te da el dato antes.
+oficina del consulado — así que chequear muy seguido no te da el dato antes,
+solo te llena el móvil de captchas (cada consulta = 1 captcha que resuelves
+tú). El deploy en Actions va configurado a cada 15 min, 24/7, por decisión
+expresa del usuario; para algo más sensato, `MIN_INTERVAL_MINUTES` +
+`ACTIVE_HOUR_START/END` en el workflow.
 
 ## Archivos
 

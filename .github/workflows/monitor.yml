@@ -2,9 +2,10 @@ name: monitor
 
 on:
   schedule:
-    # cada 30 min dentro de una ventana amplia en UTC; el propio script
-    # recorta al horario activo de La Habana (ACTIVE_HOUR_START/END).
-    - cron: "*/30 10-23 * * *"
+    # cada 15 min, 24/7 (a peticion del usuario). GitHub puede retrasar o
+    # saltarse disparos en horas punta, asi que en la practica sera "cada
+    # 15-25 min, con huecos ocasionales".
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -14,7 +15,9 @@ on:
 
 concurrency:
   group: monitor
-  cancel-in-progress: false
+  # con cadencia de 15 min, si no respondiste el captcha del tick anterior
+  # se abandona y llega uno nuevo.
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -22,7 +25,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 13
     env:
       TZ: America/Havana
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -32,9 +35,11 @@ jobs:
       ANIO_NAC: ${{ secrets.ANIO_NAC }}
       STATE_GIST_ID: ${{ secrets.STATE_GIST_ID }}
       GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-      MIN_INTERVAL_MINUTES: "180"
-      ACTIVE_HOUR_START: "7"
-      ACTIVE_HOUR_END: "19"
+      # 24/7 cada 15 min: sin horario activo y con intervalo minimo corto.
+      MIN_INTERVAL_MINUTES: "12"
+      ACTIVE_HOUR_START: "0"
+      ACTIVE_HOUR_END: "24"
+      CAPTCHA_REPLY_TIMEOUT_SECONDS: "600"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
