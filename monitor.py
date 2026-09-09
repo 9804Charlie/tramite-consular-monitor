@@ -27,8 +27,9 @@ import random
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import certifi
 import requests
@@ -464,10 +465,26 @@ def diff_status(old: dict, new: dict) -> str:
     return "\n".join(out) or "(sin diferencias en los campos vigilados)"
 
 
+_TZS = (
+    ("Habana", "America/Havana"),
+    ("Madrid", "Europe/Madrid"),
+    ("Kentucky", "America/Kentucky/Louisville"),
+)
+
+
 def _ts(epoch: float | None) -> str:
+    """Marca de tiempo en las tres zonas, una por linea."""
     if not epoch:
         return "desconocido"
-    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
+    utc = datetime.fromtimestamp(epoch, tz=timezone.utc)
+    out = []
+    for name, tz in _TZS:
+        try:
+            local = utc.astimezone(ZoneInfo(tz))
+            out.append(f"  {local:%d/%m %H:%M}  {name}")
+        except Exception:
+            pass
+    return "\n".join(out) or utc.strftime("%d/%m %H:%M UTC")
 
 
 def status_report(state: dict) -> str:
@@ -475,8 +492,8 @@ def status_report(state: dict) -> str:
     data = state.get("status_data")
     if not data:
         return "Aun no hay una linea base capturada."
-    return (f"Estado (ultima lectura {_ts(state.get('last_ok_ts'))}, "
-            f"hora Habana):\n\n" + format_status(data))
+    return ("Estado — ultima lectura:\n" + _ts(state.get("last_ok_ts"))
+            + "\n\n" + format_status(data))
 
 
 def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
@@ -617,9 +634,9 @@ def run_once(force: bool = False) -> int:
                               "cambie.\n\n" + format_status(current))
     elif prev_digest != digest:
         notifier.send_message(
-            "\U0001f514 CAMBIO en el tramite\n"
-            f"detectado: {_ts(now_ts)} (hora Habana)\n"
-            f"revision anterior sin cambios: {_ts(prev_ok_ts)}\n\n"
+            "\U0001f514 CAMBIO en el tramite\n\n"
+            "detectado:\n" + _ts(now_ts) + "\n\n"
+            "revision anterior sin cambios:\n" + _ts(prev_ok_ts) + "\n\n"
             + format_status(current)
             + "\n\n--- que cambio ---\n"
             + diff_status(prev_data, current))
