@@ -107,6 +107,9 @@ class Settings:
         # Backend de estado: gist privado si estan las dos variables.
         self.state_gist_id = os.environ.get("STATE_GIST_ID", "").strip()
         self.gist_token = os.environ.get("GIST_TOKEN", "").strip()
+        # OCR opcional (Worker propio). Solo sugiere; el usuario teclea el captcha.
+        self.ocr_url = val("OCR_URL", "ocr", "url")
+        self.ocr_key = val("OCR_KEY", "ocr", "key")
 
         missing = [n for n, v in (
             ("BOT_TOKEN/bot_token", self.bot_token),
@@ -172,6 +175,34 @@ def ca_bundle() -> str:
         data += "\n" + INTERMEDIATE_PEM.read_text(encoding="utf-8")
         CA_BUNDLE.write_text(data, encoding="utf-8")
     return str(CA_BUNDLE)
+
+
+# --------------------------------------------------------------------------- #
+# OCR opcional (Worker propio) - fire and forget: la respuesta la manda el
+# Worker a su propio chat de Telegram, este script no la espera ni la usa.
+# --------------------------------------------------------------------------- #
+
+OCR_TIMEOUT = 25
+
+
+def ocr_enviar(url: str | None, key: str | None, img: bytes) -> None:
+    """Manda el captcha al Worker OCR y no espera nada a cambio.
+
+    El Worker publica el numero detectado en su propio chat. Aqui solo se
+    dispara la subida; cualquier fallo se traga (log) y no bloquea la ronda.
+    """
+    if not url or not key:
+        return
+    try:
+        requests.post(
+            url.rstrip("/") + "/ocr",
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": ("captcha.jpg", img, "application/octet-stream")},
+            timeout=OCR_TIMEOUT,
+        )
+        log("Captcha enviado al Worker OCR.")
+    except requests.RequestException as e:
+        log(f"OCR no disponible: {e}")
 
 
 # --------------------------------------------------------------------------- #
@@ -541,6 +572,7 @@ def run_once(force: bool = False) -> int:
         if intento > 1:
             tg.send_message(f"❌ Captcha incorrecto. Intento "
                             f"{intento}/{CAPTCHA_MAX_ATTEMPTS}:")
+        ocr_enviar(s.ocr_url, s.ocr_key, img)
         tg.send_document(img, "captcha.jpg")
 
         espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
