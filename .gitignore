@@ -1,0 +1,7 @@
+config.ini
+state.json
+monitor.log
+captcha.jpg
+snapshots/
+_maec_cabundle.pem
+__pycache__/
