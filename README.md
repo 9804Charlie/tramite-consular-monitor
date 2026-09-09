@@ -25,25 +25,26 @@ automáticamente.** Cada consulta real al servidor la validas tú:
 
 Ninguna petición al servidor va sin que tú hayas resuelto el captcha.
 
-## Comandos (al bot)
+## Comandos (al bot de avisos, @Rocy_tramite_bot)
 
-Le mandas al bot (al del captcha o al de avisos si son distintos):
+Los atiende el **Worker de Cloudflare** por webhook → respuesta **al instante**,
+no dependen del cron.
 
 | Comando | Efecto |
 |---|---|
-| `/estado` | Última **lectura guardada** y cuándo se tomó (hora de La Habana). No toca la web, no pide captcha. |
-| `/historial` | Últimas ~20 revisiones con su hora y estado, marcando los cambios. Sale del log guardado. |
-| `/revisar` | Fuerza una **consulta real** en la próxima pasada del cron: captcha + resultado. Aquí **sí** avisa aunque no haya cambios. |
+| `/estado` | Última **lectura guardada** y cuándo se tomó (hora de La Habana). Lee el gist, no toca la web. |
+| `/historial` | Últimas ~20 revisiones con su hora y estado, marcando los cambios. |
+| `/revisar` | Dispara `monitor.py` **ya** (independiente del cron): captcha al bot del captcha + resultado. Avisa aunque no haya cambios. |
 
-Latencia: el bot no escucha en tiempo real, procesa los comandos cuando el
-cron lo despierta (≤ el intervalo del cron).
+Reparto de trabajo:
+- **Worker** = siempre vivo; comandos + cron + memoria (gist).
+- **monitor.py** = solo consulta el MAEC (captcha contigo) y **actualiza** el gist.
 
 Aviso de resultado:
-- revisión **automática** → solo si hay cambio;
-- revisión **explícita** (`/revisar`, `--now`, dispatch con `force`) → siempre,
-  con "sin cambios" incluido.
+- revisión **automática** (cron) → solo si hay cambio;
+- revisión **explícita** (`/revisar`, `--now`) → siempre, con "sin cambios".
 
-El log de revisiones (últimas 120) vive en el mismo `state.json` / gist.
+El log de revisiones (últimas 120) vive en `state.json` / gist.
 
 ## Configuración
 

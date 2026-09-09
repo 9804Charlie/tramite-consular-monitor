@@ -217,31 +217,13 @@ class Telegram:
         r.raise_for_status()
         return r.json().get("result", [])
 
-    def drain_messages(self, offset: int) -> tuple[list[str], int]:
-        """Lee los mensajes de texto pendientes de este chat desde `offset`.
-
-        Devuelve (textos, nuevo_offset). No espera (timeout 0).
-        """
-        texts: list[str] = []
-        new_offset = offset
-        for upd in self._get_updates(offset=offset or 0, timeout=0):
-            new_offset = upd["update_id"] + 1
-            msg = upd.get("message") or upd.get("edited_message") or {}
-            if str(msg.get("chat", {}).get("id")) != self.chat_id:
-                continue
-            if msg.get("text"):
-                texts.append(msg["text"])
-        return texts, new_offset
-
-    def wait_for_reply(self, deadline_s: int,
-                       offset: int = 0) -> tuple[str | None, bool, int]:
+    def wait_for_reply(self, deadline_s: int) -> tuple[str | None, bool]:
         """Espera un mensaje del chat: 4-6 digitos, o 'skip'/'no' para abortar.
 
-        Devuelve (codigo|None, abort_bool, nuevo_offset).
+        Devuelve (codigo|None, abort_bool). Ignora todo lo anterior a la llamada.
         """
-        if not offset:
-            seen = self._get_updates(offset=-1, timeout=0)
-            offset = (seen[-1]["update_id"] + 1) if seen else 0
+        seen = self._get_updates(offset=-1, timeout=0)
+        offset = (seen[-1]["update_id"] + 1) if seen else 0
         end = time.time() + deadline_s
         digits = re.compile(r"^\s*(\d{4,6})\s*$")
         abort = re.compile(r"^\s*(skip|no|nada|salta|cancelar?)\s*$", re.I)
@@ -259,11 +241,11 @@ class Telegram:
                     continue
                 text = msg.get("text", "")
                 if abort.match(text):
-                    return None, True, offset
+                    return None, True
                 m = digits.match(text)
                 if m:
-                    return m.group(1), False, offset
-        return None, False, offset
+                    return m.group(1), False
+        return None, False
 
 
 # --------------------------------------------------------------------------- #
@@ -477,13 +459,11 @@ def _ts(epoch: float | None) -> str:
     return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
 
 
-_short_ts = _ts
-
-
 HISTORY_MAX = 120
 
 
 def add_history(state: dict, ts: float, data: dict, cambio: bool) -> None:
+    """Anota una revision en state["history"] (lo lee el Worker para /historial)."""
     hist = state.get("history", [])
     hist.append({
         "ts": ts,
@@ -492,64 +472,6 @@ def add_history(state: dict, ts: float, data: dict, cambio: bool) -> None:
         "cambio": cambio,
     })
     state["history"] = hist[-HISTORY_MAX:]
-
-
-def status_report(state: dict) -> str:
-    """Texto para /estado: ultima lectura guardada, sin tocar la web."""
-    data = state.get("status_data")
-    if not data:
-        return "Aun no hay una linea base capturada."
-    return (f"Estado (ultima lectura {_ts(state.get('last_ok_ts'))}):\n\n"
-            + format_status(data))
-
-
-def history_report(state: dict) -> str:
-    """Texto para /historial: ultimas revisiones con su hora."""
-    hist = state.get("history", [])
-    if not hist:
-        return "Sin historial todavia."
-    lines = [f"Historial ({len(hist)} guardadas, ultimas 20):"]
-    for e in hist[-20:]:
-        mark = "  <<< CAMBIO" if e.get("cambio") else ""
-        est = e.get("estado", "?") or "?"
-        det = e.get("detalle", "")
-        lines.append(f"{_short_ts(e.get('ts'))}  {est}"
-                     + (f" / {det}" if det else "") + mark)
-    return "\n".join(lines)
-
-
-HELP_TEXT = (
-    "Bot activo ✅\n\n"
-    "/estado — ultima lectura guardada del tramite\n"
-    "/historial — ultimas revisiones con su hora\n"
-    "/revisar — fuerza una consulta real (llega captcha, luego resultado)\n\n"
-    "Los comandos se procesan cuando el monitor se ejecuta; no es instantaneo."
-)
-
-
-def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
-    """Procesa /start /estado /historial /revisar. Devuelve True si /revisar."""
-    try:
-        msgs, off = tg.drain_messages(state.get(offset_key, 0))
-    except requests.RequestException as e:
-        log(f"No pude leer comandos ({offset_key}): {e}")
-        return False
-    state[offset_key] = off
-    cmds = {m.strip().lower().split("@")[0].split()[0]
-            for m in msgs if m.strip().startswith("/")}
-    if cmds & {"/start", "/help", "/ayuda"}:
-        log(f"Comando /start ({offset_key})")
-        tg.send_message(HELP_TEXT)
-    if "/estado" in cmds:
-        log(f"Comando /estado ({offset_key})")
-        tg.send_message(status_report(state))
-    if "/historial" in cmds:
-        log(f"Comando /historial ({offset_key})")
-        tg.send_message(history_report(state))
-    if "/revisar" in cmds:
-        log(f"Comando /revisar ({offset_key})")
-        return True
-    return False
 
 
 def snapshot(html: str, tag: str) -> Path:
@@ -589,14 +511,9 @@ def run_once(force: bool = False) -> int:
     tipo, identificador, anio = s.tipo, s.identificador, s.anio_nacimiento
     reply_timeout = s.captcha_reply_timeout
 
-    # Comandos que hayas enviado al bot (a cualquiera de los dos) desde la
-    # ultima vez:
-    #   /estado   -> te devuelve la ultima lectura guardada (sin captcha)
-    #   /revisar  -> fuerza una consulta real ahora (aunque no "toque")
-    if _handle_commands(tg, state, "tg_offset"):
-        force = True
-    if notifier is not tg and _handle_commands(notifier, state, "notify_offset"):
-        force = True
+    # Los comandos (/estado /historial /revisar) los atiende el Worker de
+    # Cloudflare via webhook, no este script. /revisar llega aqui como
+    # force=True (input del workflow_dispatch).
 
     ok, why = due_for_check(s, state)
     if force:
@@ -627,9 +544,7 @@ def run_once(force: bool = False) -> int:
         tg.send_document(img, "captcha.jpg")
 
         espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
-        code, abort, tg_offset = tg.wait_for_reply(
-            espera, offset=state.get("tg_offset", 0))
-        state["tg_offset"] = tg_offset
+        code, abort = tg.wait_for_reply(espera)
         if abort:
             log("Usuario aborto la ronda.")
             state["last_check_ts"] = time.time()

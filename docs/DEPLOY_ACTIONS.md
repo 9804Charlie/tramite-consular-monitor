@@ -63,46 +63,54 @@ Por CLI:
 gh workflow run monitor --repo 9804Charlie/tramite-consular-monitor -f force=true
 ```
 
-## 5. El cron (cron-job.org)
+## 5. El Worker de Cloudflare (cerebro siempre vivo)
 
-El `schedule:` de GitHub Actions es poco fiable con intervalos cortos, así
-que el disparo cada 15 min lo hace un servicio externo gratis que llama a la
-API de `workflow_dispatch`.
+`cloudflare/worker.js` hace tres cosas:
+- **webhook de Telegram** del bot de avisos → `/start` `/estado` `/historial`
+  `/revisar` responden al instante (leen el gist; `/revisar` dispara el
+  workflow con force);
+- **cron** (`scheduled`) → dispara el workflow cada 15 min;
+- **GET /** → disparo manual, para pruebas.
 
-### 5a. PAT para disparar el workflow
+### 5a. Secrets del Worker
 
-- <https://github.com/settings/personal-access-tokens/new> → **fine-grained**
-- Repository access: **Only select repositories** → `tramite-consular-monitor`
-- Permissions → Repository permissions → **Actions: Read and write**
-- Genera y copia el `github_pat_...`.
+`dash.cloudflare.com` → Workers & Pages → tu Worker → **Settings** →
+**Variables and Secrets** → añade como **Secret**:
 
-### 5b. Disparador — Cloudflare Worker (recomendado)
+| Secret | Valor |
+|---|---|
+| `GH_PAT` | PAT con **Actions: Read and write** sobre el repo (fine-grained sirve) |
+| `GIST_TOKEN` | PAT **classic** con scope `gist` (lee el gist de estado) |
+| `STATE_GIST_ID` | el id del gist de estado |
+| `TG_TOKEN` | token del bot de avisos (`@Rocy_tramite_bot`) |
+| `TG_SECRET` | una cadena aleatoria (la misma que uses en el setWebhook) |
 
-Ver `cloudflare/worker.js`. Por el dashboard:
+Pega `cloudflare/worker.js` en el editor del Worker → **Deploy**.
 
-1. <https://dash.cloudflare.com> → **Workers & Pages** → **Create Worker**
-2. Pega `cloudflare/worker.js`, **Deploy**
-3. Worker → **Settings** → **Variables and Secrets** → add **Secret**
-   `GH_PAT` = el `github_pat_...` del paso 5a
-4. Worker → **Settings** → **Trigger Events** → **Cron Triggers** →
-   `*/15 * * * *`
-5. Prueba: abre `https://<worker>.workers.dev/` → debe decir `dispatched`
-   y aparecer una run en la pestaña Actions.
+### 5b. Cron Trigger
 
-Con wrangler: `npx wrangler deploy` + `npx wrangler secret put GH_PAT`
-desde la carpeta `cloudflare/`.
+Worker → Settings → **Cron Triggers** → `*/15 * * * *`.
+Si el panel no te deja, usa **cron-job.org** apuntando a
+`https://<tu-worker>.workers.dev/` (GET, cada 15 min).
 
-### 5b-bis. Alternativa — cron-job.org
+### 5c. Webhook de Telegram
 
-Si no quieres Cloudflare: cuenta en <https://console.cron-job.org> →
-**Create cronjob**, method **POST**, URL
-`https://api.github.com/repos/9804Charlie/tramite-consular-monitor/actions/workflows/monitor.yml/dispatches`,
-headers `Accept: application/vnd.github+json`,
-`Authorization: Bearer github_pat_...`, `X-GitHub-Api-Version: 2022-11-28`,
-body `{"ref":"main"}`. "Test run" debe dar **204**.
+Una vez desplegado el Worker, registra el webhook del bot de avisos:
 
-El `MIN_INTERVAL_MINUTES=12` del workflow evita dobles consultas si algún
-disparo se adelanta.
+```
+curl "https://api.telegram.org/bot<TG_TOKEN>/setWebhook?url=https://<tu-worker>.workers.dev/tg&secret_token=<TG_SECRET>"
+```
+
+(Solo el bot de avisos lleva webhook. El bot del captcha sigue con polling
+porque `monitor.py` necesita `getUpdates` para leer los dígitos.)
+
+### 5d. Prueba
+
+- `/estado` al bot de avisos → responde al instante con la última lectura.
+- `/revisar` → "Lanzando revisión" + en ~1 min llega el captcha al bot del
+  captcha.
+
+El `MIN_INTERVAL_MINUTES=12` del workflow evita dobles consultas.
 
 ## 6. Apagar el de tu ordenador
 
