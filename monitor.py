@@ -512,8 +512,17 @@ def history_report(state: dict) -> str:
     return "\n".join(lines)
 
 
+HELP_TEXT = (
+    "Bot activo ✅\n\n"
+    "/estado — ultima lectura guardada del tramite\n"
+    "/historial — ultimas revisiones con su hora\n"
+    "/revisar — fuerza una consulta real (llega captcha, luego resultado)\n\n"
+    "Los comandos se procesan cuando el monitor se ejecuta; no es instantaneo."
+)
+
+
 def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
-    """Procesa /estado, /historial y /revisar. Devuelve True si hubo /revisar."""
+    """Procesa /start /estado /historial /revisar. Devuelve True si /revisar."""
     try:
         msgs, off = tg.drain_messages(state.get(offset_key, 0))
     except requests.RequestException as e:
@@ -522,6 +531,9 @@ def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
     state[offset_key] = off
     cmds = {m.strip().lower().split("@")[0].split()[0]
             for m in msgs if m.strip().startswith("/")}
+    if cmds & {"/start", "/help", "/ayuda"}:
+        log(f"Comando /start ({offset_key})")
+        tg.send_message(HELP_TEXT)
     if "/estado" in cmds:
         log(f"Comando /estado ({offset_key})")
         tg.send_message(status_report(state))
