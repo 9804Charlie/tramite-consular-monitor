@@ -12,9 +12,10 @@ tareas de Windows) cada 30 min. El propio script decide si "toca" comprobar
 terminan sin molestar a nadie.
 
 Configuracion: variables de entorno (BOT_TOKEN, CHAT_ID, TRAMITE_ID,
-ANIO_NAC, ...) o, si no estan, config.ini. El estado entre ejecuciones se
-guarda en state.json local o, si STATE_GIST_ID + GIST_TOKEN estan puestos,
-en un gist privado (para correr sin disco persistente).
+ANIO_NAC, ...) o, si no estan, config.ini. NOTIFY_BOT_TOKEN + NOTIFY_CHAT_ID
+(opcionales) mandan los avisos de resultado a otro bot; el captcha sigue en
+BOT_TOKEN/CHAT_ID. El estado entre ejecuciones se guarda en state.json local
+o, si STATE_GIST_ID + GIST_TOKEN estan puestos, en un gist privado.
 """
 from __future__ import annotations
 
@@ -84,6 +85,10 @@ class Settings:
         self.captcha_reply_timeout = int(val(
             "CAPTCHA_REPLY_TIMEOUT_SECONDS", "telegram",
             "captcha_reply_timeout_seconds", "900"))
+        # Bot aparte para los avisos del resultado (linea base / cambio /
+        # sin cambios). Si no se define, va al mismo bot del captcha.
+        self.notify_bot_token = val("NOTIFY_BOT_TOKEN", "notify", "bot_token")
+        self.notify_chat_id = val("NOTIFY_CHAT_ID", "notify", "chat_id")
         self.tipo = (val("TRAMITE_TIPO", "tramite", "tipo", "VISADO")).upper()
         self.identificador = val("TRAMITE_ID", "tramite", "identificador")
         self.anio_nacimiento = val("ANIO_NAC", "tramite", "anio_nacimiento")
@@ -471,7 +476,11 @@ def run_once(force: bool = False) -> int:
     s = Settings()
     state = load_state(s)
 
-    tg = Telegram(s.bot_token, s.chat_id)
+    tg = Telegram(s.bot_token, s.chat_id)          # captcha + errores
+    if s.notify_bot_token and s.notify_chat_id:
+        notifier = Telegram(s.notify_bot_token, s.notify_chat_id)
+    else:
+        notifier = tg                              # mismo bot si no hay otro
     tipo, identificador, anio = s.tipo, s.identificador, s.anio_nacimiento
     reply_timeout = s.captcha_reply_timeout
 
@@ -538,16 +547,16 @@ def run_once(force: bool = False) -> int:
     save_state(s, state)
 
     if prev_digest is None:
-        tg.send_message("✅ Linea base capturada. A partir de ahora solo te "
-                        "aviso cuando cambie.\n\n" + format_status(current))
+        notifier.send_message("✅ Linea base capturada. A partir de ahora solo "
+                              "aviso cuando cambie.\n\n" + format_status(current))
     elif prev_digest != digest:
-        tg.send_message("\U0001f514 CAMBIO en el tramite\n\n"
-                        + format_status(current)
-                        + "\n\n--- que cambio ---\n"
-                        + diff_status(prev_data, current))
+        notifier.send_message("\U0001f514 CAMBIO en el tramite\n\n"
+                              + format_status(current)
+                              + "\n\n--- que cambio ---\n"
+                              + diff_status(prev_data, current))
     else:
         log("Sin cambios.")
-        tg.send_message("✓ Revisado, sin cambios.")
+        notifier.send_message("✓ Revisado, sin cambios.")
 
     return 0
 

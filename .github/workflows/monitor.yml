@@ -29,6 +29,9 @@ jobs:
       TZ: America/Havana
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
+      # opcionales: si no existen, los avisos van al bot del captcha
+      NOTIFY_BOT_TOKEN: ${{ secrets.NOTIFY_BOT_TOKEN }}
+      NOTIFY_CHAT_ID: ${{ secrets.NOTIFY_CHAT_ID }}
       TRAMITE_TIPO: VISADO
       TRAMITE_ID: ${{ secrets.TRAMITE_ID }}
       ANIO_NAC: ${{ secrets.ANIO_NAC }}
