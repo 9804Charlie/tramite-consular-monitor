@@ -27,9 +27,8 @@ import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import certifi
 import requests
@@ -465,39 +464,14 @@ def diff_status(old: dict, new: dict) -> str:
     return "\n".join(out) or "(sin diferencias en los campos vigilados)"
 
 
-_TZS = (
-    ("Habana", "America/Havana"),
-    ("Madrid", "Europe/Madrid"),
-    ("Kentucky", "America/Kentucky/Louisville"),
-)
-
-
 def _ts(epoch: float | None) -> str:
-    """Marca de tiempo en las tres zonas, una por linea."""
+    """Hora local del runner (America/Havana via TZ en el workflow)."""
     if not epoch:
         return "desconocido"
-    utc = datetime.fromtimestamp(epoch, tz=timezone.utc)
-    out = []
-    for name, tz in _TZS:
-        try:
-            local = utc.astimezone(ZoneInfo(tz))
-            out.append(f"  {local:%d/%m %H:%M}  {name}")
-        except Exception:
-            pass
-    return "\n".join(out) or utc.strftime("%d/%m %H:%M UTC")
+    return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
 
 
-def _short_ts(epoch: float | None) -> str:
-    """Una linea: Habana / Madrid."""
-    if not epoch:
-        return "??"
-    utc = datetime.fromtimestamp(epoch, tz=timezone.utc)
-    try:
-        hab = utc.astimezone(ZoneInfo("America/Havana"))
-        mad = utc.astimezone(ZoneInfo("Europe/Madrid"))
-        return f"{hab:%d/%m %H:%M} Hab / {mad:%H:%M} Mad"
-    except Exception:
-        return utc.strftime("%d/%m %H:%M UTC")
+_short_ts = _ts
 
 
 HISTORY_MAX = 120
@@ -519,8 +493,8 @@ def status_report(state: dict) -> str:
     data = state.get("status_data")
     if not data:
         return "Aun no hay una linea base capturada."
-    return ("Estado — ultima lectura:\n" + _ts(state.get("last_ok_ts"))
-            + "\n\n" + format_status(data))
+    return (f"Estado (ultima lectura {_ts(state.get('last_ok_ts'))}):\n\n"
+            + format_status(data))
 
 
 def history_report(state: dict) -> str:
@@ -682,16 +656,16 @@ def run_once(force: bool = False) -> int:
                               + format_status(current))
     elif cambio:
         notifier.send_message(
-            "\U0001f514 CAMBIO en el tramite\n\n"
-            "detectado:\n" + _ts(now_ts) + "\n\n"
-            "revision anterior sin cambios:\n" + _ts(prev_ok_ts) + "\n\n"
+            "\U0001f514 CAMBIO en el tramite\n"
+            f"detectado: {_ts(now_ts)}\n"
+            f"revision anterior sin cambios: {_ts(prev_ok_ts)}\n\n"
             + format_status(current)
             + "\n\n--- que cambio ---\n"
             + diff_status(prev_data, current))
     elif force:
         # revision explicita (/revisar, --now, dispatch con force): confirma
-        notifier.send_message("✓ Revisado, sin cambios.\n\n"
-                              + _ts(now_ts) + "\n\n" + format_status(current))
+        notifier.send_message(f"✓ Revisado, sin cambios ({_ts(now_ts)}).\n\n"
+                              + format_status(current))
     else:
         log("Sin cambios (no se notifica).")
 
