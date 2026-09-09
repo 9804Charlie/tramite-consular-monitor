@@ -187,12 +187,15 @@ class Telegram:
             "disable_web_page_preview": "true",
         })
 
-    def send_document(self, data: bytes, filename: str, caption: str) -> None:
+    def send_document(self, data: bytes, filename: str,
+                      caption: str = "") -> None:
         # sendDocument (no sendPhoto): Telegram no recomprime el fichero, asi
         # que el captcha llega con la calidad original.
-        self._call("sendDocument",
-                   data={"chat_id": self.chat_id, "caption": caption,
-                         "disable_content_type_detection": "true"},
+        payload = {"chat_id": self.chat_id,
+                   "disable_content_type_detection": "true"}
+        if caption:
+            payload["caption"] = caption
+        self._call("sendDocument", data=payload,
                    files={"document": (filename, data,
                                        "application/octet-stream")})
 
@@ -490,9 +493,7 @@ def run_once(force: bool = False) -> int:
                         f"({e}). Reintento en la proxima ventana.")
         return 1
 
-    tg.send_document(img, "captcha.jpg",
-                     "Monitor visado — escribe los numeros del captcha "
-                     "(o 'skip' para saltar esta ronda).")
+    tg.send_document(img, "captcha.jpg")
     code, abort = tg.wait_for_reply(reply_timeout)
     if abort:
         log("Usuario aborto la ronda.")
