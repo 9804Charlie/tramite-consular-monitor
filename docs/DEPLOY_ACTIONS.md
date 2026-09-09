@@ -44,8 +44,15 @@ workflow.)
 
 ## 4. Probar
 
-`Actions` → workflow **monitor** → `Run workflow`. En ~1 min te llega el
-captcha al bot; respóndelo y mira que el job termine en verde.
+`Actions` → workflow **monitor** → `Run workflow`, marca **force** (ignora
+el horario y el intervalo mínimo) → `Run`. En ~1 min te llega el captcha al
+bot; respóndelo y mira que el job termine en verde.
+
+Por CLI:
+
+```powershell
+gh workflow run monitor --repo 9804Charlie/tramite-consular-monitor -f force=true
+```
 
 ## 5. Apagar el de tu ordenador
 
