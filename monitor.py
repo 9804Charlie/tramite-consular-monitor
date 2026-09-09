@@ -6,15 +6,22 @@ resolviendo el captcha que le llega por Telegram. El script se encarga del
 resto: acceso por resguardo, parseo de la pagina de estado, deteccion de
 cambios y aviso.
 
-Uso previsto: lanzado por el Programador de tareas de Windows cada 30 min.
-El propio script decide si "toca" comprobar (intervalo minimo + horario
-activo), asi que la mayoria de ejecuciones terminan sin molestar a nadie.
+Uso previsto: lanzado por un cron (GitHub Actions o el Programador de
+tareas de Windows) cada 30 min. El propio script decide si "toca" comprobar
+(intervalo minimo + horario activo), asi que la mayoria de ejecuciones
+terminan sin molestar a nadie.
+
+Configuracion: variables de entorno (BOT_TOKEN, CHAT_ID, TRAMITE_ID,
+ANIO_NAC, ...) o, si no estan, config.ini. El estado entre ejecuciones se
+guarda en state.json local o, si STATE_GIST_ID + GIST_TOKEN estan puestos,
+en un gist privado (para correr sin disco persistente).
 """
 from __future__ import annotations
 
 import configparser
 import hashlib
 import json
+import os
 import random
 import re
 import sys
@@ -56,24 +63,92 @@ def log(msg: str) -> None:
 # Config / estado
 # --------------------------------------------------------------------------- #
 
-def load_config() -> configparser.ConfigParser:
-    if not CONFIG_PATH.exists():
-        sys.exit(f"Falta {CONFIG_PATH}. Copia config.example.ini a config.ini "
-                 f"y rellena los datos.")
-    cfg = configparser.ConfigParser()
-    cfg.read(CONFIG_PATH, encoding="utf-8")
-    return cfg
+class Settings:
+    """Lee de variables de entorno primero, luego de config.ini."""
+
+    def __init__(self) -> None:
+        cfg = configparser.ConfigParser()
+        if CONFIG_PATH.exists():
+            cfg.read(CONFIG_PATH, encoding="utf-8")
+
+        def val(env: str, section: str, key: str, default: str | None = None):
+            v = os.environ.get(env)
+            if v is not None and v.strip() != "":
+                return v.strip()
+            if cfg.has_option(section, key):
+                return cfg.get(section, key).strip()
+            return default
+
+        self.bot_token = val("BOT_TOKEN", "telegram", "bot_token")
+        self.chat_id = val("CHAT_ID", "telegram", "chat_id")
+        self.captcha_reply_timeout = int(val(
+            "CAPTCHA_REPLY_TIMEOUT_SECONDS", "telegram",
+            "captcha_reply_timeout_seconds", "900"))
+        self.tipo = (val("TRAMITE_TIPO", "tramite", "tipo", "VISADO")).upper()
+        self.identificador = val("TRAMITE_ID", "tramite", "identificador")
+        self.anio_nacimiento = val("ANIO_NAC", "tramite", "anio_nacimiento")
+        self.min_interval_minutes = int(val(
+            "MIN_INTERVAL_MINUTES", "schedule", "min_interval_minutes", "180"))
+        self.active_hour_start = int(val(
+            "ACTIVE_HOUR_START", "schedule", "active_hour_start", "8"))
+        self.active_hour_end = int(val(
+            "ACTIVE_HOUR_END", "schedule", "active_hour_end", "20"))
+        # Backend de estado: gist privado si estan las dos variables.
+        self.state_gist_id = os.environ.get("STATE_GIST_ID", "").strip()
+        self.gist_token = os.environ.get("GIST_TOKEN", "").strip()
+
+        missing = [n for n, v in (
+            ("BOT_TOKEN/bot_token", self.bot_token),
+            ("CHAT_ID/chat_id", self.chat_id),
+            ("TRAMITE_ID/identificador", self.identificador),
+            ("ANIO_NAC/anio_nacimiento", self.anio_nacimiento),
+        ) if not v]
+        if missing:
+            sys.exit("Faltan ajustes (ni env ni config.ini): "
+                     + ", ".join(missing))
 
 
-def load_state() -> dict:
+GIST_STATE_FILE = "state.json"
+
+
+def _gist_headers(s: Settings) -> dict:
+    return {"Authorization": f"Bearer {s.gist_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"}
+
+
+def load_state(s: Settings) -> dict:
+    if s.state_gist_id:
+        r = requests.get(f"https://api.github.com/gists/{s.state_gist_id}",
+                         headers=_gist_headers(s), timeout=30)
+        r.raise_for_status()
+        f = (r.json().get("files") or {}).get(GIST_STATE_FILE)
+        if not f:
+            return {}
+        content = f.get("content", "")
+        if f.get("truncated") and f.get("raw_url"):
+            content = requests.get(f["raw_url"], headers=_gist_headers(s),
+                                   timeout=30).text
+        try:
+            return json.loads(content) if content.strip() else {}
+        except json.JSONDecodeError:
+            return {}
     if STATE_PATH.exists():
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
     return {}
 
 
-def save_state(state: dict) -> None:
-    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False),
-                          encoding="utf-8")
+def save_state(s: Settings, state: dict) -> None:
+    payload = json.dumps(state, indent=2, ensure_ascii=False)
+    if s.state_gist_id:
+        r = requests.patch(
+            f"https://api.github.com/gists/{s.state_gist_id}",
+            headers=_gist_headers(s),
+            json={"files": {GIST_STATE_FILE: {"content": payload}}},
+            timeout=30)
+        r.raise_for_status()
+        return
+    STATE_PATH.write_text(payload, encoding="utf-8")
 
 
 def ca_bundle() -> str:
@@ -371,33 +446,29 @@ def snapshot(html: str, tag: str) -> Path:
 # Logica principal
 # --------------------------------------------------------------------------- #
 
-def due_for_check(cfg, state) -> tuple[bool, str]:
+def due_for_check(s: Settings, state: dict) -> tuple[bool, str]:
     now = datetime.now()
-    start = cfg.getint("schedule", "active_hour_start", fallback=8)
-    end = cfg.getint("schedule", "active_hour_end", fallback=20)
+    start, end = s.active_hour_start, s.active_hour_end
     if not (start <= now.hour < end):
         return False, f"fuera de horario activo ({start}:00-{end}:00)"
-    min_gap = cfg.getint("schedule", "min_interval_minutes", fallback=180)
     last = state.get("last_check_ts")
     if last:
         mins = (time.time() - last) / 60
-        if mins < min_gap:
-            return False, f"ultima comprobacion hace {mins:.0f} min (< {min_gap})"
+        if mins < s.min_interval_minutes:
+            return False, (f"ultima comprobacion hace {mins:.0f} min "
+                           f"(< {s.min_interval_minutes})")
     return True, "toca"
 
 
 def run_once(force: bool = False) -> int:
-    cfg = load_config()
-    state = load_state()
+    s = Settings()
+    state = load_state(s)
 
-    tg = Telegram(cfg["telegram"]["bot_token"], cfg["telegram"]["chat_id"])
-    tipo = cfg["tramite"].get("tipo", "VISADO").upper()
-    identificador = cfg["tramite"]["identificador"].strip()
-    anio = cfg["tramite"]["anio_nacimiento"].strip()
-    reply_timeout = cfg.getint("telegram", "captcha_reply_timeout_seconds",
-                               fallback=900)
+    tg = Telegram(s.bot_token, s.chat_id)
+    tipo, identificador, anio = s.tipo, s.identificador, s.anio_nacimiento
+    reply_timeout = s.captcha_reply_timeout
 
-    ok, why = due_for_check(cfg, state)
+    ok, why = due_for_check(s, state)
     if force:
         ok, why = True, "forzado (--now)"
     if not ok:
@@ -421,7 +492,7 @@ def run_once(force: bool = False) -> int:
     if abort:
         log("Usuario aborto la ronda.")
         state["last_check_ts"] = time.time()
-        save_state(state)
+        save_state(s, state)
         return 0
     if not code:
         log("Sin respuesta al captcha.")
@@ -445,7 +516,7 @@ def run_once(force: bool = False) -> int:
         msg = extract_alert(html) or "captcha incorrecto o datos no reconocidos"
         log(f"Respuesta != pagina de estado ({msg}). Snapshot: {snap.name}")
         tg.send_message(f"❌ No entro: {msg}. Reintento en la proxima ventana.")
-        save_state(state)
+        save_state(s, state)
         return 0
 
     snap = snapshot(html, "estado")
@@ -458,7 +529,7 @@ def run_once(force: bool = False) -> int:
     state["status_digest"] = digest
     state["status_data"] = current
     state["last_ok_ts"] = time.time()
-    save_state(state)
+    save_state(s, state)
 
     if prev_digest is None:
         tg.send_message("✅ Linea base capturada. A partir de ahora solo te "
@@ -480,10 +551,7 @@ def run_console() -> int:
 
     Util para la primera prueba y para depurar el POST / el parser.
     """
-    cfg = load_config()
-    tipo = cfg["tramite"].get("tipo", "VISADO").upper()
-    identificador = cfg["tramite"]["identificador"].strip()
-    anio = cfg["tramite"]["anio_nacimiento"].strip()
+    s = Settings()
 
     site = SuTramite()
     fields = site.load_form()
@@ -492,14 +560,13 @@ def run_console() -> int:
     cap_path.write_bytes(img)
     print(f"Captcha guardado en: {cap_path}")
     try:
-        import os
         os.startfile(cap_path)  # type: ignore[attr-defined]
     except Exception:
         pass
     code = input("Numeros del captcha: ").strip()
 
-    html = site.submit(fields, tipo=tipo, identificador=identificador,
-                       anio_nacimiento=anio, captcha=code)
+    html = site.submit(fields, tipo=s.tipo, identificador=s.identificador,
+                       anio_nacimiento=s.anio_nacimiento, captcha=code)
     snap = snapshot(html, "console")
     print(f"\nSnapshot: {snap}")
     if not is_status_page(html):

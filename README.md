@@ -3,12 +3,15 @@
 Vigila el estado de un trámite consular en `sutramiteconsular.maec.es`
 (vía "Acceso por Resguardo") y avisa por Telegram **solo cuando algo cambia**.
 
+Corre en tu ordenador (Programador de tareas de Windows) o en la nube
+(GitHub Actions, gratis) — ver [docs/DEPLOY_ACTIONS.md](docs/DEPLOY_ACTIONS.md).
+
 ## Cómo funciona (human-in-the-loop)
 
 La vía del resguardo lleva un captcha numérico. **No se resuelve
 automáticamente.** Cada consulta real al servidor la validas tú:
 
-1. El Programador de tareas lanza `monitor.py` cada 30 min.
+1. Un cron lanza `monitor.py` cada 30 min.
 2. El script decide si "toca" (intervalo mínimo + horario activo). Si no toca,
    termina sin hacer nada.
 3. Si toca: carga la web, descarga el captcha y te lo manda por Telegram.
@@ -21,7 +24,15 @@ automáticamente.** Cada consulta real al servidor la validas tú:
 
 Ninguna petición al servidor va sin que tú hayas resuelto el captcha.
 
-## Puesta en marcha
+## Configuración
+
+`monitor.py` lee **variables de entorno** primero (`BOT_TOKEN`, `CHAT_ID`,
+`TRAMITE_ID`, `ANIO_NAC`, `TRAMITE_TIPO`, `MIN_INTERVAL_MINUTES`,
+`ACTIVE_HOUR_START`, `ACTIVE_HOUR_END`, `CAPTCHA_REPLY_TIMEOUT_SECONDS`) y,
+si no están, `config.ini`. El estado va a `state.json` local salvo que
+pongas `STATE_GIST_ID` + `GIST_TOKEN` (gist privado, para la nube).
+
+## Puesta en marcha (local)
 
 ```powershell
 cd visa-monitor
@@ -69,7 +80,8 @@ razonable ni te da el dato antes.
 | archivo | qué es |
 |---|---|
 | `monitor.py` | el script |
-| `config.ini` | tu configuración (no se versiona) |
+| `.github/workflows/monitor.yml` | despliegue en GitHub Actions |
+| `config.ini` | configuración local (no se versiona) |
 | `state.json` | último hash/estado visto (no se versiona) |
 | `snapshots/` | HTML crudo de cada respuesta, para depurar el parser |
 | `monitor.log` | salida de las ejecuciones programadas |
