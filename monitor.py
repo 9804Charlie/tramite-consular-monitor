@@ -211,14 +211,31 @@ class Telegram:
         r.raise_for_status()
         return r.json().get("result", [])
 
-    def wait_for_reply(self, deadline_s: int):
+    def drain_messages(self, offset: int) -> tuple[list[str], int]:
+        """Lee los mensajes de texto pendientes de este chat desde `offset`.
+
+        Devuelve (textos, nuevo_offset). No espera (timeout 0).
+        """
+        texts: list[str] = []
+        new_offset = offset
+        for upd in self._get_updates(offset=offset or 0, timeout=0):
+            new_offset = upd["update_id"] + 1
+            msg = upd.get("message") or upd.get("edited_message") or {}
+            if str(msg.get("chat", {}).get("id")) != self.chat_id:
+                continue
+            if msg.get("text"):
+                texts.append(msg["text"])
+        return texts, new_offset
+
+    def wait_for_reply(self, deadline_s: int,
+                       offset: int = 0) -> tuple[str | None, bool, int]:
         """Espera un mensaje del chat: 4-6 digitos, o 'skip'/'no' para abortar.
 
-        Devuelve (codigo|None, abort_bool).
+        Devuelve (codigo|None, abort_bool, nuevo_offset).
         """
-        # Marca de agua: ignora todo lo anterior a esta llamada.
-        seen = self._get_updates(offset=-1, timeout=0)
-        offset = (seen[-1]["update_id"] + 1) if seen else 0
+        if not offset:
+            seen = self._get_updates(offset=-1, timeout=0)
+            offset = (seen[-1]["update_id"] + 1) if seen else 0
         end = time.time() + deadline_s
         digits = re.compile(r"^\s*(\d{4,6})\s*$")
         abort = re.compile(r"^\s*(skip|no|nada|salta|cancelar?)\s*$", re.I)
@@ -236,11 +253,11 @@ class Telegram:
                     continue
                 text = msg.get("text", "")
                 if abort.match(text):
-                    return None, True
+                    return None, True, offset
                 m = digits.match(text)
                 if m:
-                    return m.group(1), False
-        return None, False
+                    return m.group(1), False, offset
+        return None, False, offset
 
 
 # --------------------------------------------------------------------------- #
@@ -447,6 +464,40 @@ def diff_status(old: dict, new: dict) -> str:
     return "\n".join(out) or "(sin diferencias en los campos vigilados)"
 
 
+def _ts(epoch: float | None) -> str:
+    if not epoch:
+        return "desconocido"
+    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
+
+
+def status_report(state: dict) -> str:
+    """Texto para el comando /estado: ultima lectura guardada, sin tocar la web."""
+    data = state.get("status_data")
+    if not data:
+        return "Aun no hay una linea base capturada."
+    return (f"Estado (ultima lectura {_ts(state.get('last_ok_ts'))}, "
+            f"hora Habana):\n\n" + format_status(data))
+
+
+def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
+    """Procesa /estado y /revisar en el chat de `tg`. Devuelve True si /revisar."""
+    try:
+        msgs, off = tg.drain_messages(state.get(offset_key, 0))
+    except requests.RequestException as e:
+        log(f"No pude leer comandos ({offset_key}): {e}")
+        return False
+    state[offset_key] = off
+    cmds = {m.strip().lower().split("@")[0].split()[0]
+            for m in msgs if m.strip().startswith("/")}
+    if "/estado" in cmds:
+        log(f"Comando /estado ({offset_key})")
+        tg.send_message(status_report(state))
+    if "/revisar" in cmds:
+        log(f"Comando /revisar ({offset_key})")
+        return True
+    return False
+
+
 def snapshot(html: str, tag: str) -> Path:
     SNAP_DIR.mkdir(exist_ok=True)
     p = SNAP_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-{tag}.html"
@@ -484,11 +535,21 @@ def run_once(force: bool = False) -> int:
     tipo, identificador, anio = s.tipo, s.identificador, s.anio_nacimiento
     reply_timeout = s.captcha_reply_timeout
 
+    # Comandos que hayas enviado al bot (a cualquiera de los dos) desde la
+    # ultima vez:
+    #   /estado   -> te devuelve la ultima lectura guardada (sin captcha)
+    #   /revisar  -> fuerza una consulta real ahora (aunque no "toque")
+    if _handle_commands(tg, state, "tg_offset"):
+        force = True
+    if notifier is not tg and _handle_commands(notifier, state, "notify_offset"):
+        force = True
+
     ok, why = due_for_check(s, state)
     if force:
-        ok, why = True, "forzado (--now)"
+        ok, why = True, "forzado"
     if not ok:
         log(f"No toca comprobar: {why}")
+        save_state(s, state)
         return 0
     log(f"Comprobacion: {why}")
 
@@ -503,7 +564,9 @@ def run_once(force: bool = False) -> int:
         return 1
 
     tg.send_document(img, "captcha.jpg")
-    code, abort = tg.wait_for_reply(reply_timeout)
+    code, abort, tg_offset = tg.wait_for_reply(reply_timeout,
+                                               offset=state.get("tg_offset", 0))
+    state["tg_offset"] = tg_offset
     if abort:
         log("Usuario aborto la ronda.")
         state["last_check_ts"] = time.time()
@@ -513,6 +576,7 @@ def run_once(force: bool = False) -> int:
         log("Sin respuesta al captcha.")
         tg.send_message("⏳ No recibi el captcha a tiempo. Lo reintento en "
                         "la proxima ventana.")
+        save_state(s, state)
         return 0
 
     try:
@@ -541,22 +605,26 @@ def run_once(force: bool = False) -> int:
 
     prev_digest = state.get("status_digest")
     prev_data = state.get("status_data", {})
+    prev_ok_ts = state.get("last_ok_ts")
+    now_ts = time.time()
     state["status_digest"] = digest
     state["status_data"] = current
-    state["last_ok_ts"] = time.time()
+    state["last_ok_ts"] = now_ts
     save_state(s, state)
 
     if prev_digest is None:
-        notifier.send_message("✅ Linea base capturada. A partir de ahora solo "
-                              "aviso cuando cambie.\n\n" + format_status(current))
+        notifier.send_message("✅ Linea base capturada. Solo aviso cuando "
+                              "cambie.\n\n" + format_status(current))
     elif prev_digest != digest:
-        notifier.send_message("\U0001f514 CAMBIO en el tramite\n\n"
-                              + format_status(current)
-                              + "\n\n--- que cambio ---\n"
-                              + diff_status(prev_data, current))
+        notifier.send_message(
+            "\U0001f514 CAMBIO en el tramite\n"
+            f"detectado: {_ts(now_ts)} (hora Habana)\n"
+            f"revision anterior sin cambios: {_ts(prev_ok_ts)}\n\n"
+            + format_status(current)
+            + "\n\n--- que cambio ---\n"
+            + diff_status(prev_data, current))
     else:
-        log("Sin cambios.")
-        notifier.send_message("✓ Revisado, sin cambios.")
+        log("Sin cambios (no se notifica).")
 
     return 0
 

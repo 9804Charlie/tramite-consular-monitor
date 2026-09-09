@@ -19,10 +19,23 @@ automáticamente.** Cada consulta real al servidor la validas tú:
 5. El script envía el formulario, parsea la página de estado, la compara con
    la última guardada y:
    - primera vez → guarda la "línea base" y te la enseña;
-   - si cambió → 🔔 te manda el texto nuevo;
-   - si no → un "✓ sin cambios".
+   - si cambió → 🔔 te avisa con la hora exacta de detección, la hora de la
+     revisión anterior (sin cambios) y qué campo cambió;
+   - si no → **no dice nada**.
 
 Ninguna petición al servidor va sin que tú hayas resuelto el captcha.
+
+## Comandos (al bot)
+
+Le mandas al bot (al del captcha o al de avisos si son distintos):
+
+| Comando | Efecto |
+|---|---|
+| `/estado` | Te devuelve la **última lectura guardada** y cuándo se tomó. No toca la web, no pide captcha. |
+| `/revisar` | Fuerza una **consulta real** en la próxima pasada del cron (aunque no "toque"): te llega captcha y luego el resultado. |
+
+Latencia: el bot no escucha en tiempo real, procesa los comandos cuando el
+cron lo despierta (≤ el intervalo del cron).
 
 ## Configuración
 
