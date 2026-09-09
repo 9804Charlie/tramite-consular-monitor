@@ -107,7 +107,7 @@ class Settings:
         # Backend de estado: gist privado si estan las dos variables.
         self.state_gist_id = os.environ.get("STATE_GIST_ID", "").strip()
         self.gist_token = os.environ.get("GIST_TOKEN", "").strip()
-        # OCR opcional (Worker propio). Solo sugiere; el usuario teclea el captcha.
+        # OCR (Worker propio). Si no se define, el captcha se manda al chat y el usuario lo resuelve.
         self.ocr_url = val("OCR_URL", "ocr", "url")
         self.ocr_key = val("OCR_KEY", "ocr", "key")
 
@@ -192,17 +192,20 @@ def ocr_enviar(url: str | None, key: str | None, img: bytes) -> None:
     dispara la subida; cualquier fallo se traga (log) y no bloquea la ronda.
     """
     if not url or not key:
-        return
+        return None
     try:
-        requests.post(
+        response =requests.post(
             url.rstrip("/") + "/ocr",
             headers={"Authorization": f"Bearer {key}"},
             files={"file": ("captcha.jpg", img, "application/octet-stream")},
             timeout=OCR_TIMEOUT,
         )
         log("Captcha enviado al Worker OCR.")
+        data = response.json()
+        return data.get("numeros")
     except requests.RequestException as e:
         log(f"OCR no disponible: {e}")
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -575,8 +578,13 @@ def run_once(force: bool = False) -> int:
         ocr_enviar(s.ocr_url, s.ocr_key, img)
         tg.send_document(img, "captcha.jpg")
 
-        espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
-        code, abort = tg.wait_for_reply(espera)
+        try:
+            code = ocr_enviar(s.ocr_url, s.ocr_key, img)
+        except Exception as e:
+            log(f"OCR fallo: {e}")
+            espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
+            code, abort = tg.wait_for_reply(espera)
+
         if abort:
             log("Usuario aborto la ronda.")
             state["last_check_ts"] = time.time()
