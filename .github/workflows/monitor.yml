@@ -24,7 +24,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 13
+    timeout-minutes: 18
     env:
       TZ: America/Havana
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

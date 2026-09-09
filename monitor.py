@@ -37,6 +37,12 @@ from bs4 import BeautifulSoup
 BASE = "https://sutramiteconsular.maec.es/"
 CAPTCHA_URL = BASE + "CaptchaHome.aspx"
 
+# Si fallas el captcha, se pide otro en la misma ejecucion (no hay que
+# esperar al siguiente cron). El primer intento usa el timeout normal;
+# los reintentos, uno mas corto para no agotar el limite del job.
+CAPTCHA_MAX_ATTEMPTS = 3
+CAPTCHA_RETRY_TIMEOUT = 180
+
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = HERE / "config.ini"
 STATE_PATH = HERE / "state.json"
@@ -602,47 +608,62 @@ def run_once(force: bool = False) -> int:
     log(f"Comprobacion: {why}")
 
     site = SuTramite()
-    try:
-        fields = site.load_form()
-        img = site.fetch_captcha()
-    except Exception as e:
-        log(f"Error preparando la consulta: {e}")
-        tg.send_message(f"⚠️ Monitor visado: no pude cargar la web "
-                        f"({e}). Reintento en la proxima ventana.")
-        return 1
+    html = None
+    motivo = "captcha incorrecto"
+    for intento in range(1, CAPTCHA_MAX_ATTEMPTS + 1):
+        try:
+            fields = site.load_form()
+            img = site.fetch_captcha()
+        except Exception as e:
+            log(f"Error preparando la consulta: {e}")
+            tg.send_message(f"⚠️ Monitor visado: no pude cargar la web ({e}). "
+                            f"Reintento en la proxima ventana.")
+            save_state(s, state)
+            return 1
 
-    tg.send_document(img, "captcha.jpg")
-    code, abort, tg_offset = tg.wait_for_reply(reply_timeout,
-                                               offset=state.get("tg_offset", 0))
-    state["tg_offset"] = tg_offset
-    if abort:
-        log("Usuario aborto la ronda.")
-        state["last_check_ts"] = time.time()
-        save_state(s, state)
-        return 0
-    if not code:
-        log("Sin respuesta al captcha.")
-        tg.send_message("⏳ No recibi el captcha a tiempo. Lo reintento en "
-                        "la proxima ventana.")
-        save_state(s, state)
-        return 0
+        if intento > 1:
+            tg.send_message(f"❌ Captcha incorrecto. Intento "
+                            f"{intento}/{CAPTCHA_MAX_ATTEMPTS}:")
+        tg.send_document(img, "captcha.jpg")
 
-    try:
-        html = site.submit(fields, tipo=tipo, identificador=identificador,
-                           anio_nacimiento=anio, captcha=code)
-    except Exception as e:
-        log(f"Error en el POST: {e}")
-        tg.send_message(f"⚠️ Monitor visado: fallo al enviar ({e}).")
-        return 1
+        espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
+        code, abort, tg_offset = tg.wait_for_reply(
+            espera, offset=state.get("tg_offset", 0))
+        state["tg_offset"] = tg_offset
+        if abort:
+            log("Usuario aborto la ronda.")
+            state["last_check_ts"] = time.time()
+            save_state(s, state)
+            return 0
+        if not code:
+            log("Sin respuesta al captcha.")
+            tg.send_message("⏳ No recibi el captcha a tiempo. Lo reintento "
+                            "en la proxima ventana.")
+            save_state(s, state)
+            return 0
+
+        try:
+            resp = site.submit(fields, tipo=tipo, identificador=identificador,
+                               anio_nacimiento=anio, captcha=code)
+        except Exception as e:
+            log(f"Error en el POST: {e}")
+            tg.send_message(f"⚠️ Monitor visado: fallo al enviar ({e}).")
+            return 1
+
+        if is_status_page(resp):
+            html = resp
+            break
+        snap = snapshot(resp, "rechazado")
+        motivo = extract_alert(resp) or "captcha incorrecto o datos no reconocidos"
+        log(f"Intento {intento}: no es pagina de estado ({motivo}). "
+            f"Snapshot: {snap.name}")
 
     state["last_check_ts"] = time.time()
     state.pop("force", None)
 
-    if not is_status_page(html):
-        snap = snapshot(html, "rechazado")
-        msg = extract_alert(html) or "captcha incorrecto o datos no reconocidos"
-        log(f"Respuesta != pagina de estado ({msg}). Snapshot: {snap.name}")
-        tg.send_message(f"❌ No entro: {msg}. Reintento en la proxima ventana.")
+    if html is None:
+        tg.send_message(f"❌ {CAPTCHA_MAX_ATTEMPTS} intentos de captcha "
+                        f"fallidos ({motivo}). Reintento en la proxima ventana.")
         save_state(s, state)
         return 0
 
