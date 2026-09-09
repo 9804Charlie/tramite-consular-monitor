@@ -1,11 +1,10 @@
 name: monitor
 
 on:
-  schedule:
-    # cada 15 min, 24/7 (a peticion del usuario). GitHub puede retrasar o
-    # saltarse disparos en horas punta, asi que en la practica sera "cada
-    # 15-25 min, con huecos ocasionales".
-    - cron: "*/15 * * * *"
+  # El scheduler de GitHub Actions es poco fiable con intervalos cortos
+  # (se salta disparos, el primero tarda mucho). El cron real lo dispara
+  # cron-job.org llamando a la API de workflow_dispatch cada 15 min.
+  # Ver docs/DEPLOY_ACTIONS.md.
   workflow_dispatch:
     inputs:
       force:
