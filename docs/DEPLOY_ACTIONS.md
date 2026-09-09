@@ -43,8 +43,9 @@ privado**. Necesitas un token que pueda escribirlo:
 Si no pones `NOTIFY_*`, los avisos de resultado van al mismo bot del captcha.
 
 Comandos que puedes mandar a cualquiera de los dos bots: `/estado` (última
-lectura guardada, sin captcha) y `/revisar` (fuerza consulta en la próxima
-pasada del cron). Se procesan cuando el cron despierta al script.
+lectura guardada, sin captcha), `/historial` (últimas revisiones con su
+hora) y `/revisar` (fuerza consulta en la próxima pasada del cron; avisa
+aunque no haya cambios). Se procesan cuando el cron despierta al script.
 
 (El tipo de trámite va fijo a `VISADO` en el workflow; cámbialo allí si hace
 falta. `MIN_INTERVAL_MINUTES` y el horario activo también se ajustan en el

@@ -487,8 +487,35 @@ def _ts(epoch: float | None) -> str:
     return "\n".join(out) or utc.strftime("%d/%m %H:%M UTC")
 
 
+def _short_ts(epoch: float | None) -> str:
+    """Una linea: Habana / Madrid."""
+    if not epoch:
+        return "??"
+    utc = datetime.fromtimestamp(epoch, tz=timezone.utc)
+    try:
+        hab = utc.astimezone(ZoneInfo("America/Havana"))
+        mad = utc.astimezone(ZoneInfo("Europe/Madrid"))
+        return f"{hab:%d/%m %H:%M} Hab / {mad:%H:%M} Mad"
+    except Exception:
+        return utc.strftime("%d/%m %H:%M UTC")
+
+
+HISTORY_MAX = 120
+
+
+def add_history(state: dict, ts: float, data: dict, cambio: bool) -> None:
+    hist = state.get("history", [])
+    hist.append({
+        "ts": ts,
+        "estado": data.get("estado", ""),
+        "detalle": data.get("estado_detalle", ""),
+        "cambio": cambio,
+    })
+    state["history"] = hist[-HISTORY_MAX:]
+
+
 def status_report(state: dict) -> str:
-    """Texto para el comando /estado: ultima lectura guardada, sin tocar la web."""
+    """Texto para /estado: ultima lectura guardada, sin tocar la web."""
     data = state.get("status_data")
     if not data:
         return "Aun no hay una linea base capturada."
@@ -496,8 +523,23 @@ def status_report(state: dict) -> str:
             + "\n\n" + format_status(data))
 
 
+def history_report(state: dict) -> str:
+    """Texto para /historial: ultimas revisiones con su hora."""
+    hist = state.get("history", [])
+    if not hist:
+        return "Sin historial todavia."
+    lines = [f"Historial ({len(hist)} guardadas, ultimas 20):"]
+    for e in hist[-20:]:
+        mark = "  <<< CAMBIO" if e.get("cambio") else ""
+        est = e.get("estado", "?") or "?"
+        det = e.get("detalle", "")
+        lines.append(f"{_short_ts(e.get('ts'))}  {est}"
+                     + (f" / {det}" if det else "") + mark)
+    return "\n".join(lines)
+
+
 def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
-    """Procesa /estado y /revisar en el chat de `tg`. Devuelve True si /revisar."""
+    """Procesa /estado, /historial y /revisar. Devuelve True si hubo /revisar."""
     try:
         msgs, off = tg.drain_messages(state.get(offset_key, 0))
     except requests.RequestException as e:
@@ -509,6 +551,9 @@ def _handle_commands(tg: "Telegram", state: dict, offset_key: str) -> bool:
     if "/estado" in cmds:
         log(f"Comando /estado ({offset_key})")
         tg.send_message(status_report(state))
+    if "/historial" in cmds:
+        log(f"Comando /historial ({offset_key})")
+        tg.send_message(history_report(state))
     if "/revisar" in cmds:
         log(f"Comando /revisar ({offset_key})")
         return True
@@ -624,15 +669,18 @@ def run_once(force: bool = False) -> int:
     prev_data = state.get("status_data", {})
     prev_ok_ts = state.get("last_ok_ts")
     now_ts = time.time()
+    cambio = prev_digest is not None and prev_digest != digest
     state["status_digest"] = digest
     state["status_data"] = current
     state["last_ok_ts"] = now_ts
+    add_history(state, now_ts, current, cambio)
     save_state(s, state)
 
     if prev_digest is None:
         notifier.send_message("✅ Linea base capturada. Solo aviso cuando "
-                              "cambie.\n\n" + format_status(current))
-    elif prev_digest != digest:
+                              "cambie (o si lo pides con /revisar).\n\n"
+                              + format_status(current))
+    elif cambio:
         notifier.send_message(
             "\U0001f514 CAMBIO en el tramite\n\n"
             "detectado:\n" + _ts(now_ts) + "\n\n"
@@ -640,6 +688,10 @@ def run_once(force: bool = False) -> int:
             + format_status(current)
             + "\n\n--- que cambio ---\n"
             + diff_status(prev_data, current))
+    elif force:
+        # revision explicita (/revisar, --now, dispatch con force): confirma
+        notifier.send_message("✓ Revisado, sin cambios.\n\n"
+                              + _ts(now_ts) + "\n\n" + format_status(current))
     else:
         log("Sin cambios (no se notifica).")
 

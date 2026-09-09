@@ -31,11 +31,19 @@ Le mandas al bot (al del captcha o al de avisos si son distintos):
 
 | Comando | Efecto |
 |---|---|
-| `/estado` | Te devuelve la **última lectura guardada** y cuándo se tomó. No toca la web, no pide captcha. |
-| `/revisar` | Fuerza una **consulta real** en la próxima pasada del cron (aunque no "toque"): te llega captcha y luego el resultado. |
+| `/estado` | Última **lectura guardada** y cuándo se tomó (hora Habana/Madrid/Kentucky). No toca la web, no pide captcha. |
+| `/historial` | Últimas ~20 revisiones con su hora y estado, marcando los cambios. Sale del log guardado. |
+| `/revisar` | Fuerza una **consulta real** en la próxima pasada del cron: captcha + resultado. Aquí **sí** avisa aunque no haya cambios. |
 
 Latencia: el bot no escucha en tiempo real, procesa los comandos cuando el
 cron lo despierta (≤ el intervalo del cron).
+
+Aviso de resultado:
+- revisión **automática** → solo si hay cambio;
+- revisión **explícita** (`/revisar`, `--now`, dispatch con `force`) → siempre,
+  con "sin cambios" incluido.
+
+El log de revisiones (últimas 120) vive en el mismo `state.json` / gist.
 
 ## Configuración
 
