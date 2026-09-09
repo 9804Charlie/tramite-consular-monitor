@@ -1,10 +1,12 @@
 name: monitor
 
 on:
-  # El scheduler de GitHub Actions es poco fiable con intervalos cortos
-  # (se salta disparos, el primero tarda mucho). El cron real lo dispara
-  # cron-job.org llamando a la API de workflow_dispatch cada 15 min.
+  # Cron propio de GitHub como respaldo. Es poco fiable con intervalos
+  # cortos (retrasa/salta disparos), por eso ademas hay un disparador
+  # externo (cron-job.org o un Worker) llamando a workflow_dispatch.
   # Ver docs/DEPLOY_ACTIONS.md.
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       force:
