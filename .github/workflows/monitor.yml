@@ -39,8 +39,9 @@ jobs:
       ANIO_NAC: ${{ secrets.ANIO_NAC }}
       STATE_GIST_ID: ${{ secrets.STATE_GIST_ID }}
       GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-      # TEMPORAL (prueba del cron): bajado a 2. Volver a "12" al terminar.
-      MIN_INTERVAL_MINUTES: "2"
+      # Cron externo cada 15 min; el guard de 12 lo deja pasar y frena
+      # disparos adelantados o repetidos.
+      MIN_INTERVAL_MINUTES: "12"
       ACTIVE_HOUR_START: "0"
       ACTIVE_HOUR_END: "24"
       CAPTCHA_REPLY_TIMEOUT_SECONDS: "600"
