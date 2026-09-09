@@ -67,22 +67,33 @@ API de `workflow_dispatch`.
 - Permissions → Repository permissions → **Actions: Read and write**
 - Genera y copia el `github_pat_...`.
 
-### 5b. cron-job.org
+### 5b. Disparador — Cloudflare Worker (recomendado)
 
-- Crea cuenta en <https://console.cron-job.org> → **Create cronjob**
-- **URL**:
-  `https://api.github.com/repos/9804Charlie/tramite-consular-monitor/actions/workflows/monitor.yml/dispatches`
-- **Schedule**: every 15 minutes
-- **Advanced** → Request method: **POST**
-- **Headers**:
-  - `Accept: application/vnd.github+json`
-  - `Authorization: Bearer github_pat_...`
-  - `X-GitHub-Api-Version: 2022-11-28`
-- **Body**: `{"ref":"main"}`
-- Guarda. "Test run" debe devolver **204**.
+Ver `cloudflare/worker.js`. Por el dashboard:
 
-Cada 15 min cron-job.org dispara el workflow; el `MIN_INTERVAL_MINUTES=12`
-del workflow evita dobles consultas si algún disparo se adelanta.
+1. <https://dash.cloudflare.com> → **Workers & Pages** → **Create Worker**
+2. Pega `cloudflare/worker.js`, **Deploy**
+3. Worker → **Settings** → **Variables and Secrets** → add **Secret**
+   `GH_PAT` = el `github_pat_...` del paso 5a
+4. Worker → **Settings** → **Trigger Events** → **Cron Triggers** →
+   `*/15 * * * *`
+5. Prueba: abre `https://<worker>.workers.dev/` → debe decir `dispatched`
+   y aparecer una run en la pestaña Actions.
+
+Con wrangler: `npx wrangler deploy` + `npx wrangler secret put GH_PAT`
+desde la carpeta `cloudflare/`.
+
+### 5b-bis. Alternativa — cron-job.org
+
+Si no quieres Cloudflare: cuenta en <https://console.cron-job.org> →
+**Create cronjob**, method **POST**, URL
+`https://api.github.com/repos/9804Charlie/tramite-consular-monitor/actions/workflows/monitor.yml/dispatches`,
+headers `Accept: application/vnd.github+json`,
+`Authorization: Bearer github_pat_...`, `X-GitHub-Api-Version: 2022-11-28`,
+body `{"ref":"main"}`. "Test run" debe dar **204**.
+
+El `MIN_INTERVAL_MINUTES=12` del workflow evita dobles consultas si algún
+disparo se adelanta.
 
 ## 6. Apagar el de tu ordenador
 

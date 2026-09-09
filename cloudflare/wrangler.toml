@@ -1,0 +1,11 @@
+name = "visa-monitor-cron"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Cada 15 min. Cloudflare admite hasta "* * * * *" (cada minuto) en plan free.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# El secreto GH_PAT NO va aqui: se pone con
+#   npx wrangler secret put GH_PAT
+# o en el dashboard (Settings -> Variables and Secrets).
