@@ -79,7 +79,6 @@ Aviso de resultado:
 | `ACTIVE_HOUR_START` / `ACTIVE_HOUR_END` | ventana horaria (0–24 = siempre) |
 | `CAPTCHA_REPLY_TIMEOUT_SECONDS` | espera del primer captcha (600) |
 | `STATE_GIST_ID` / `GIST_TOKEN` | memoria en gist (si faltan, `state.json` local) |
-| `OCR_URL` / `OCR_KEY` | *(opcional)* Worker OCR que sugiere el número del captcha en el chat; `OCR_URL` es solo el dominio |
 
 El Worker usa: `GH_PAT` (dispara el workflow), `GIST_TOKEN` + `STATE_GIST_ID`
 (lee la memoria), `TG_TOKEN` (bot de avisos), `TG_SECRET` (verifica el webhook).

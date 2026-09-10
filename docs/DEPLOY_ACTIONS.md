@@ -39,12 +39,8 @@ privado**. Necesitas un token que pueda escribirlo:
 | `GIST_TOKEN` | el `ghp_...` del paso 1 |
 | `NOTIFY_BOT_TOKEN` | *(opcional)* token de otro bot solo para los avisos de resultado |
 | `NOTIFY_CHAT_ID` | *(opcional)* chat id de ese otro bot |
-| `OCR_URL` | *(opcional)* dominio del Worker OCR, p. ej. `https://telegram-ocr-bot.charlie-mtnz-98.workers.dev` (sin `/ocr`) |
-| `OCR_KEY` | *(opcional)* la `OCR_API_KEY` de ese Worker |
 
 Si no pones `NOTIFY_*`, los avisos de resultado van al mismo bot del captcha.
-Si pones `OCR_URL` + `OCR_KEY`, con cada captcha el Worker publica en el chat su
-lectura del número (una sugerencia; tú la verificas y la tecleas).
 
 Comandos que puedes mandar a cualquiera de los dos bots: `/estado` (última
 lectura guardada, sin captcha), `/historial` (últimas revisiones con su

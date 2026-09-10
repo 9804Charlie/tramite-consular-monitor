@@ -39,9 +39,6 @@ jobs:
       ANIO_NAC: ${{ secrets.ANIO_NAC }}
       STATE_GIST_ID: ${{ secrets.STATE_GIST_ID }}
       GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-      # opcional: Worker OCR que sugiere el numero del captcha en el chat
-      OCR_URL: ${{ secrets.OCR_URL }}
-      OCR_KEY: ${{ secrets.OCR_KEY }}
       # Cron externo cada 15 min; el guard de 12 lo deja pasar y frena
       # disparos adelantados o repetidos.
       MIN_INTERVAL_MINUTES: "12"
