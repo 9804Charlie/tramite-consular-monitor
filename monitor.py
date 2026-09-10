@@ -562,14 +562,13 @@ def run_once(force: bool = False) -> int:
                         f"Reintento en la proxima ventana.")
         save_state(s, state)
         return 1
-
-    tg.send_document(img, "captcha.jpg")
-    # Pista del OCR en el mismo chat/bot; el usuario la verifica y teclea.
+    
     sugerencia = ocr_leer(s.ocr_url, s.ocr_key, img)
     try:
         code = sugerencia
     except Exception as e:
         log(f"Error procesando la sugerencia OCR: {e}")
+        tg.send_document(img, "captcha.jpg")
         code = tg.wait_for_reply(reply_timeout)
     if not code:
         log("Sin respuesta al captcha.")
