@@ -569,10 +569,11 @@ def run_once(force: bool = False) -> int:
     tg.send_document(img, "captcha.jpg")
     # Pista del OCR en el mismo chat/bot; el usuario la verifica y teclea.
     sugerencia = ocr_leer(s.ocr_url, s.ocr_key, img)
-    if sugerencia:
-        tg.send_message(f"🔎 OCR (verifica): {sugerencia}")
-
-    code, abort = tg.wait_for_reply(reply_timeout)
+    try:
+        code = sugerencia
+    except Exception as e:
+        log(f"Error procesando la sugerencia OCR: {e}")
+        code = code, abort = tg.wait_for_reply(reply_timeout)
     if abort:
         log("Usuario aborto la ronda.")
         state["last_check_ts"] = time.time()
