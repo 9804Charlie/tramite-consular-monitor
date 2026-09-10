@@ -148,7 +148,11 @@ async function handleUpdate(env, update) {
   const cmd = msg.text.trim().toLowerCase().split(/\s+/)[0].split("@")[0];
 
   if (["/start", "/help", "/ayuda"].includes(cmd)) {
-    await tgSend(env, chatId, HELP);
+    await tgSend(env, chatId,
+      HELP + `\n\nTu chat id: ${chatId}\n(dáselo al admin para recibir los `
+      + `avisos automáticos de cambio).`);
+  } else if (cmd === "/id") {
+    await tgSend(env, chatId, `${chatId}`);
   } else if (cmd === "/estado") {
     try { await tgSend(env, chatId, statusReport(await loadState(env))); }
     catch (e) { await tgSend(env, chatId, "No pude leer el estado: " + e.message); }
