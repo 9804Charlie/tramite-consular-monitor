@@ -248,8 +248,8 @@ class Telegram:
         r.raise_for_status()
         return r.json().get("result", [])
 
-    def wait_for_reply(self, deadline_s: int) -> tuple[str | None, bool]:
-        """Espera un mensaje del chat: 4-6 digitos, o 'skip'/'no' para abortar.
+    def wait_for_reply(self, deadline_s: int) -> str | None:
+        """Espera un mensaje del chat: 4-6 digitos
 
         Devuelve (codigo|None, abort_bool). Ignora todo lo anterior a la llamada.
         """
@@ -257,7 +257,6 @@ class Telegram:
         offset = (seen[-1]["update_id"] + 1) if seen else 0
         end = time.time() + deadline_s
         digits = re.compile(r"^\s*(\d{4,6})\s*$")
-        abort = re.compile(r"^\s*(skip|no|nada|salta|cancelar?)\s*$", re.I)
         while time.time() < end:
             try:
                 updates = self._get_updates(offset=offset, timeout=25)
@@ -271,12 +270,10 @@ class Telegram:
                 if str(msg.get("chat", {}).get("id")) != self.chat_id:
                     continue
                 text = msg.get("text", "")
-                if abort.match(text):
-                    return None, True
                 m = digits.match(text)
                 if m:
-                    return m.group(1), False
-        return None, False
+                    return m.group(1)
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -573,12 +570,7 @@ def run_once(force: bool = False) -> int:
         code = sugerencia
     except Exception as e:
         log(f"Error procesando la sugerencia OCR: {e}")
-        code = code, abort = tg.wait_for_reply(reply_timeout)
-    if abort:
-        log("Usuario aborto la ronda.")
-        state["last_check_ts"] = time.time()
-        save_state(s, state)
-        return 0
+        code = tg.wait_for_reply(reply_timeout)
     if not code:
         log("Sin respuesta al captcha.")
         tg.send_message("⏳ No recibi el captcha a tiempo. Lo reintento "
