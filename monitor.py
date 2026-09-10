@@ -633,7 +633,7 @@ def run_once(force: bool = False) -> int:
     else:
         log("Sin cambios (no se notifica).")
         # TEMPORAL: latido para ver que el cron funciona. Quitar este bloque.
-        notifier.send_message(f"🫀 cron OK, sin cambios ({_ts(now_ts)})")
+        tg.send_message(f"🫀 cron OK, sin cambios ({_ts(now_ts)})")
 
     return 0
 
