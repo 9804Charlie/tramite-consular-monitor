@@ -562,10 +562,11 @@ def run_once(force: bool = False) -> int:
                         f"Reintento en la proxima ventana.")
         save_state(s, state)
         return 1
-    
-    sugerencia = ocr_leer(s.ocr_url, s.ocr_key, img)
+ 
     try:
-        code = sugerencia
+        code = ocr_leer(s.ocr_url, s.ocr_key, img)
+        if code is None:
+            raise ValueError("OCR no disponible o no devolvio numeros")
     except Exception as e:
         log(f"Error procesando la sugerencia OCR: {e}")
         tg.send_document(img, "captcha.jpg")
