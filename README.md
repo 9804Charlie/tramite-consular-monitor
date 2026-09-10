@@ -43,14 +43,19 @@ del cron.
 
 | Comando | Efecto |
 |---|---|
+| `/start` | Te **suscribe** a los avisos de cambio (guarda tu chat en `subscribers.json` del gist). Cualquiera puede. |
 | `/estado` | Última lectura guardada y cuándo se tomó (hora de La Habana). Lee el gist, no toca la web. |
 | `/historial` | Últimas ~20 revisiones con su hora y estado, marcando los cambios. |
 | `/revisar` | Dispara `monitor.py` **ya**, sin esperar al cron: captcha a @Revisor98bot + resultado. Avisa aunque no haya cambios. |
-| `/start` | Confirma que el bot está vivo. |
+| `/baja` | Deja de recibir avisos. |
 
 Aviso de resultado:
 - revisión **automática** (cron) → solo si hay cambio;
 - revisión **explícita** (`/revisar`, `--now`) → siempre, con "sin cambios".
+
+**Multi-persona:** los comandos ya sirven para cualquiera. Los avisos de
+cambio van a la unión de `NOTIFY_CHAT_ID` (ids fijos por coma) + los que se
+hayan dado de alta con `/start`.
 
 ## Puesta en marcha
 

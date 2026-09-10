@@ -25,11 +25,12 @@ const DISPATCH_URL =
 const UA = "visa-monitor-worker";
 
 const HELP = [
-  "Bot activo ✅",
+  "Bot activo ✅ — quedas suscrito a los avisos de cambio.",
   "",
   "/estado — ultima lectura guardada del tramite",
   "/historial — ultimas revisiones con su hora",
   "/revisar — fuerza una consulta real ahora (llega el captcha al otro bot)",
+  "/baja — dejar de recibir avisos",
 ].join("\n");
 
 // --- GitHub --------------------------------------------------------------- //
@@ -51,25 +52,52 @@ async function dispatch(env, force) {
   return r.ok;
 }
 
-async function loadState(env) {
-  const r = await fetch(`https://api.github.com/gists/${env.STATE_GIST_ID}`, {
-    headers: {
-      Authorization: `Bearer ${env.GIST_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": UA,
-    },
-  });
+function ghHeaders(env) {
+  return {
+    Authorization: `Bearer ${env.GIST_TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": UA,
+  };
+}
+
+async function loadGistFile(env, name) {
+  const r = await fetch(`https://api.github.com/gists/${env.STATE_GIST_ID}`,
+    { headers: ghHeaders(env) });
   if (!r.ok) throw new Error(`gist ${r.status}`);
   const j = await r.json();
-  const f = j.files && j.files["state.json"];
-  if (!f) return {};
+  const f = j.files && j.files[name];
+  if (!f) return null;
   let content = f.content;
   if (f.truncated && f.raw_url) {
-    content = await (await fetch(f.raw_url, {
-      headers: { Authorization: `Bearer ${env.GIST_TOKEN}`, "User-Agent": UA },
-    })).text();
+    content = await (await fetch(f.raw_url, { headers: ghHeaders(env) })).text();
   }
-  try { return JSON.parse(content || "{}"); } catch { return {}; }
+  try { return JSON.parse(content || "null"); } catch { return null; }
+}
+
+async function patchGistFile(env, name, obj) {
+  const r = await fetch(`https://api.github.com/gists/${env.STATE_GIST_ID}`, {
+    method: "PATCH",
+    headers: { ...ghHeaders(env), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      files: { [name]: { content: JSON.stringify(obj, null, 2) } },
+    }),
+  });
+  if (!r.ok) console.log(`patch ${name} -> ${r.status} ${await r.text()}`);
+  return r.ok;
+}
+
+const loadState = (env) => loadGistFile(env, "state.json").then((v) => v || {});
+
+async function loadSubs(env) {
+  const v = await loadGistFile(env, "subscribers.json");
+  return Array.isArray(v && v.chats) ? v.chats.map(String) : [];
+}
+
+async function subscribe(env, chatId, on) {
+  const chats = new Set(await loadSubs(env));
+  if (on) chats.add(String(chatId)); else chats.delete(String(chatId));
+  await patchGistFile(env, "subscribers.json", { chats: [...chats] });
+  return chats.size;
 }
 
 // --- Telegram ------------------------------------------------------------- //
@@ -147,10 +175,20 @@ async function handleUpdate(env, update) {
   const chatId = msg.chat.id;
   const cmd = msg.text.trim().toLowerCase().split(/\s+/)[0].split("@")[0];
 
-  if (["/start", "/help", "/ayuda"].includes(cmd)) {
-    await tgSend(env, chatId,
-      HELP + `\n\nTu chat id: ${chatId}\n(dáselo al admin para recibir los `
-      + `avisos automáticos de cambio).`);
+  if (["/start", "/suscribir"].includes(cmd)) {
+    let extra = "";
+    try { await subscribe(env, chatId, true); }
+    catch (e) { extra = "\n\n⚠️ no pude guardar la suscripcion: " + e.message; }
+    await tgSend(env, chatId, HELP + extra);
+  } else if (["/help", "/ayuda"].includes(cmd)) {
+    await tgSend(env, chatId, HELP);
+  } else if (["/baja", "/stop"].includes(cmd)) {
+    try {
+      await subscribe(env, chatId, false);
+      await tgSend(env, chatId, "Hecho, ya no recibes avisos. /start para volver.");
+    } catch (e) {
+      await tgSend(env, chatId, "No pude darte de baja: " + e.message);
+    }
   } else if (cmd === "/id") {
     await tgSend(env, chatId, `${chatId}`);
   } else if (cmd === "/estado") {

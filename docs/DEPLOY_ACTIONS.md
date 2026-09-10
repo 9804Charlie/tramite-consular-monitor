@@ -48,10 +48,11 @@ su lectura del número y la publica en el chat como pista (`🔎 OCR (verifica):
 tú la verificas contra la imagen y tecleas la buena. El Worker necesita su
 propio secret `OCR_API_KEY` = el valor de `OCR_KEY`.
 
-Comandos que puedes mandar a cualquiera de los dos bots: `/estado` (última
-lectura guardada, sin captcha), `/historial` (últimas revisiones con su
-hora) y `/revisar` (fuerza consulta en la próxima pasada del cron; avisa
-aunque no haya cambios). Se procesan cuando el cron despierta al script.
+Comandos (los atiende el Worker al instante): `/start` (suscribe al que
+escribe a los avisos de cambio — se guarda en `subscribers.json` del gist),
+`/estado`, `/historial`, `/revisar`, `/baja`, `/id`. Los avisos de cambio
+van a `NOTIFY_CHAT_ID` (ids fijos) **+** los suscriptores. El `GIST_TOKEN`
+del Worker tiene que poder **escribir** el gist (PAT classic scope `gist`).
 
 (El tipo de trámite va fijo a `VISADO` en el workflow; cámbialo allí si hace
 falta. `MIN_INTERVAL_MINUTES` y el horario activo también se ajustan en el

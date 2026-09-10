@@ -149,6 +149,28 @@ def load_state(s: Settings) -> dict:
     return {}
 
 
+def load_subscribers(s: Settings) -> list[str]:
+    """Chats suscritos via el Worker (fichero subscribers.json del gist)."""
+    if not s.state_gist_id:
+        return []
+    try:
+        r = requests.get(f"https://api.github.com/gists/{s.state_gist_id}",
+                         headers=_gist_headers(s), timeout=30)
+        r.raise_for_status()
+        f = (r.json().get("files") or {}).get("subscribers.json")
+        if not f:
+            return []
+        content = f.get("content", "")
+        if f.get("truncated") and f.get("raw_url"):
+            content = requests.get(f["raw_url"], headers=_gist_headers(s),
+                                   timeout=30).text
+        data = json.loads(content) if content.strip() else {}
+        return [str(c) for c in data.get("chats", [])]
+    except (requests.RequestException, json.JSONDecodeError) as e:
+        log(f"No pude leer subscribers.json: {e}")
+        return []
+
+
 def save_state(s: Settings, state: dict) -> None:
     payload = json.dumps(state, indent=2, ensure_ascii=False)
     if s.state_gist_id:
@@ -535,13 +557,16 @@ def run_once(force: bool = False) -> int:
     state = load_state(s)
 
     tg = Telegram(s.bot_token, s.chat_id)          # captcha + errores
-    # Destinatarios de los avisos de resultado. Con NOTIFY_BOT_TOKEN +
-    # NOTIFY_CHAT_ID (uno o varios ids por coma) -> ese bot a cada persona;
-    # si no, todo al bot del captcha.
-    if s.notify_bot_token and s.notify_chat_ids:
-        notifiers = [Telegram(s.notify_bot_token, c) for c in s.notify_chat_ids]
+    # Destinatarios de los avisos de resultado:
+    #   NOTIFY_CHAT_ID (ids fijos por coma) + suscriptores del Worker
+    #   (subscribers.json en el gist, alta con /start). Todos por el bot
+    #   NOTIFY_BOT_TOKEN. Sin NOTIFY_BOT_TOKEN -> todo al bot del captcha.
+    if s.notify_bot_token:
+        chats = list(dict.fromkeys(s.notify_chat_ids + load_subscribers(s)))
+        notifiers = [Telegram(s.notify_bot_token, c) for c in chats] or [tg]
     else:
         notifiers = [tg]
+    log(f"avisos a {len(notifiers)} destinatario(s)")
 
     def notify_all(text: str) -> None:
         for n in notifiers:
