@@ -575,7 +575,6 @@ def run_once(force: bool = False) -> int:
         if intento > 1:
             tg.send_message(f"❌ Captcha incorrecto. Intento "
                             f"{intento}/{CAPTCHA_MAX_ATTEMPTS}:")
-        ocr_enviar(s.ocr_url, s.ocr_key, img)
         tg.send_document(img, "captcha.jpg")
 
         try:
