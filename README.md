@@ -25,8 +25,8 @@ automáticamente** — cada consulta real al servidor la validas tú:
 2. `monitor.py` mira si "toca" (`MIN_INTERVAL_MINUTES`, por defecto 12). Si no
    toca, termina sin hacer nada.
 3. Si toca: carga la web, descarga el captcha y te lo manda a **@Revisor98bot**.
-4. Respondes con los 4–6 dígitos (`skip` para saltar; hasta 3 intentos si
-   fallas).
+4. Respondes con los 4–6 dígitos (`skip` para saltar). Si fallas, se
+   reintenta en la siguiente pasada del cron (~15 min) o con `/revisar`.
 5. `monitor.py` envía el formulario, parsea la página de estado, la compara
    con la última guardada en el gist y:
    - primera vez → guarda la "línea base" y te la enseña;
