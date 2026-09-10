@@ -43,10 +43,8 @@ privado**. Necesitas un token que pueda escribirlo:
 | `OCR_KEY` | *(opcional)* la `OCR_API_KEY` de ese Worker |
 
 Si no pones `NOTIFY_*`, los avisos de resultado van al mismo bot del captcha.
-Si pones `OCR_URL` + `OCR_KEY`, con cada captcha el monitor pregunta al Worker
-su lectura del número y la publica en el chat como pista (`🔎 OCR (verifica):`);
-tú la verificas contra la imagen y tecleas la buena. El Worker necesita su
-propio secret `OCR_API_KEY` = el valor de `OCR_KEY`.
+Si pones `OCR_URL` + `OCR_KEY`, con cada captcha el Worker publica en el chat su
+lectura del número (una sugerencia; tú la verificas y la tecleas).
 
 Comandos que puedes mandar a cualquiera de los dos bots: `/estado` (última
 lectura guardada, sin captcha), `/historial` (últimas revisiones con su

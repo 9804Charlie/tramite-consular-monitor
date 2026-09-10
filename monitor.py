@@ -178,37 +178,40 @@ def ca_bundle() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# OCR opcional (Worker propio). Devuelve la lectura del captcha como texto;
-# monitor.py la publica en el MISMO chat/bot del captcha, como pista. El numero
-# valido lo sigue tecleando el usuario (esto no lo usa como captcha).
+# OCR opcional (Worker propio) - fire and forget: el Worker publica su lectura
+# del captcha en el chat, como sugerencia. Este script no la espera ni la usa.
 # --------------------------------------------------------------------------- #
 
 OCR_TIMEOUT = 25
 
 
-def ocr_leer(url: str | None, key: str | None, img: bytes) -> str | None:
-    """Pide al Worker OCR su lectura del captcha. Devuelve el texto o None.
+def ocr_enviar(url: str | None, key: str | None, img: bytes,
+               chat_id: str | None = None) -> None:
+    """Manda el captcha al Worker OCR para que sugiera el numero en el chat.
 
-    Se traga cualquier fallo (log) y nunca bloquea la ronda.
+    Fire and forget: el Worker publica su lectura en el chat indicado (o en el
+    que tenga configurado). Este script NO la espera ni la usa: el numero
+    valido lo sigue tecleando el usuario. Cualquier fallo se traga (log) y no
+    bloquea la ronda.
     """
     if not url or not key:
-        return None
+        return
+    endpoint = url.rstrip("/") + "/ocr"
+    if chat_id:
+        endpoint += f"?chat_id={chat_id}&fuente=captcha"
     try:
         r = requests.post(
-            url.rstrip("/") + "/ocr",
+            endpoint,
             headers={"Authorization": f"Bearer {key}"},
             files={"file": ("captcha.jpg", img, "application/octet-stream")},
             timeout=OCR_TIMEOUT,
         )
-        if not r.ok:
+        if r.ok:
+            log("Captcha enviado al Worker OCR.")
+        else:
             log(f"Worker OCR respondio {r.status_code}: {r.text[:150]}")
-            return None
-        numeros = (r.json().get("numeros") or "").strip()
-        log(f"OCR leyo: {numeros!r}")
-        return numeros or None
-    except (requests.RequestException, ValueError) as e:
+    except requests.RequestException as e:
         log(f"OCR no disponible: {e}")
-        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -579,10 +582,8 @@ def run_once(force: bool = False) -> int:
             tg.send_message(f"❌ Captcha incorrecto. Intento "
                             f"{intento}/{CAPTCHA_MAX_ATTEMPTS}:")
         tg.send_document(img, "captcha.jpg")
-        # Pista del OCR en el mismo chat/bot; el usuario la verifica y teclea.
-        sugerencia = ocr_leer(s.ocr_url, s.ocr_key, img)
-        if sugerencia:
-            tg.send_message(f"🔎 OCR (verifica): {sugerencia}")
+        # Sugerencia del OCR al mismo chat; el usuario la verifica y teclea.
+        ocr_enviar(s.ocr_url, s.ocr_key, img, s.chat_id)
 
         espera = reply_timeout if intento == 1 else CAPTCHA_RETRY_TIMEOUT
         code, abort = tg.wait_for_reply(espera)
