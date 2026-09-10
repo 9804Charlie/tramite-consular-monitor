@@ -87,8 +87,11 @@ class Settings:
             "captcha_reply_timeout_seconds", "900"))
         # Bot aparte para los avisos del resultado (linea base / cambio /
         # sin cambios). Si no se define, va al mismo bot del captcha.
+        # NOTIFY_CHAT_ID admite varios ids separados por coma.
         self.notify_bot_token = val("NOTIFY_BOT_TOKEN", "notify", "bot_token")
-        self.notify_chat_id = val("NOTIFY_CHAT_ID", "notify", "chat_id")
+        _chats = val("NOTIFY_CHAT_ID", "notify", "chat_id", "") or ""
+        self.notify_chat_ids = [c.strip() for c in _chats.split(",") if c.strip()]
+        self.notify_chat_id = self.notify_chat_ids[0] if self.notify_chat_ids else None
         self.tipo = (val("TRAMITE_TIPO", "tramite", "tipo", "VISADO")).upper()
         self.identificador = val("TRAMITE_ID", "tramite", "identificador")
         self.anio_nacimiento = val("ANIO_NAC", "tramite", "anio_nacimiento")
@@ -532,10 +535,21 @@ def run_once(force: bool = False) -> int:
     state = load_state(s)
 
     tg = Telegram(s.bot_token, s.chat_id)          # captcha + errores
-    if s.notify_bot_token and s.notify_chat_id:
-        notifier = Telegram(s.notify_bot_token, s.notify_chat_id)
+    # Destinatarios de los avisos de resultado. Con NOTIFY_BOT_TOKEN +
+    # NOTIFY_CHAT_ID (uno o varios ids por coma) -> ese bot a cada persona;
+    # si no, todo al bot del captcha.
+    if s.notify_bot_token and s.notify_chat_ids:
+        notifiers = [Telegram(s.notify_bot_token, c) for c in s.notify_chat_ids]
     else:
-        notifier = tg                              # mismo bot si no hay otro
+        notifiers = [tg]
+
+    def notify_all(text: str) -> None:
+        for n in notifiers:
+            try:
+                n.send_message(text)
+            except Exception as e:  # noqa: BLE001
+                log(f"aviso a {n.chat_id} fallo: {e}")
+
     tipo, identificador, anio = s.tipo, s.identificador, s.anio_nacimiento
     reply_timeout = s.captcha_reply_timeout
 
@@ -615,11 +629,10 @@ def run_once(force: bool = False) -> int:
     save_state(s, state)
 
     if prev_digest is None:
-        notifier.send_message("✅ Linea base capturada. Solo aviso cuando "
-                              "cambie (o si lo pides con /revisar).\n\n"
-                              + format_status(current))
+        notify_all("✅ Linea base capturada. Solo aviso cuando cambie "
+                   "(o si lo pides con /revisar).\n\n" + format_status(current))
     elif cambio:
-        notifier.send_message(
+        notify_all(
             "\U0001f514 CAMBIO en el tramite\n"
             f"detectado: {_ts(now_ts)}\n"
             f"revision anterior sin cambios: {_ts(prev_ok_ts)}\n\n"
@@ -628,8 +641,8 @@ def run_once(force: bool = False) -> int:
             + diff_status(prev_data, current))
     elif force:
         # revision explicita (/revisar, --now, dispatch con force): confirma
-        notifier.send_message(f"✓ Revisado, sin cambios ({_ts(now_ts)}).\n\n"
-                              + format_status(current))
+        notify_all(f"✓ Revisado, sin cambios ({_ts(now_ts)}).\n\n"
+                   + format_status(current))
     else:
         log("Sin cambios (no se notifica).")
         # TEMPORAL: latido para ver que el cron funciona. Quitar este bloque.

@@ -73,7 +73,7 @@ Aviso de resultado:
 | Variable | Para qué |
 |---|---|
 | `BOT_TOKEN` / `CHAT_ID` | bot del captcha (@Revisor98bot) |
-| `NOTIFY_BOT_TOKEN` / `NOTIFY_CHAT_ID` | bot de avisos (@Rocy_tramite_bot); si faltan, todo va al del captcha |
+| `NOTIFY_BOT_TOKEN` / `NOTIFY_CHAT_ID` | bot de avisos (@Rocy_tramite_bot); si faltan, todo va al del captcha. `NOTIFY_CHAT_ID` admite varios ids por coma (varias personas) |
 | `TRAMITE_ID` / `ANIO_NAC` / `TRAMITE_TIPO` | datos del resguardo |
 | `MIN_INTERVAL_MINUTES` | intervalo mínimo entre consultas reales (12) |
 | `ACTIVE_HOUR_START` / `ACTIVE_HOUR_END` | ventana horaria (0–24 = siempre) |
